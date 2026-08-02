@@ -3,7 +3,7 @@ CanaryFile Engine - Listener Server Core
 FastAPI application for receiving, logging, and dispatching alerts for canary token triggers.
 """
 
-from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Response, status
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Response, status, APIRouter
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -83,14 +83,18 @@ def get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "127.0.0.1"
 
 
-@app.get("/health", tags=["System"])
+# Define API Router for trigger listener & management endpoints
+router = APIRouter()
+
+
+@router.get("/health", tags=["System"])
 async def healthcheck():
     """Health check endpoint."""
     return {"status": "ok", "app": settings.app_name, "version": settings.app_version}
 
 
-@app.get("/t/{token_id}", tags=["Trigger Listener"])
-@app.post("/t/{token_id}", tags=["Trigger Listener"])
+@router.get("/t/{token_id}", tags=["Trigger Listener"])
+@router.post("/t/{token_id}", tags=["Trigger Listener"])
 async def canary_trigger_endpoint(
     token_id: str,
     request: Request,
@@ -133,7 +137,7 @@ async def canary_trigger_endpoint(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.post("/api/v1/tokens", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, tags=["Token Management"])
+@router.post("/api/v1/tokens", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, tags=["Token Management"])
 async def register_canary_token(payload: TokenCreateRequest):
     """Register a new canary token."""
     result = db.register_token(
@@ -144,13 +148,19 @@ async def register_canary_token(payload: TokenCreateRequest):
     return result
 
 
-@app.get("/api/v1/tokens", response_model=List[Dict[str, Any]], tags=["Token Management"])
+@router.get("/api/v1/tokens", response_model=List[Dict[str, Any]], tags=["Token Management"])
 async def list_canary_tokens():
     """List all registered canary tokens."""
     return db.list_tokens()
 
 
-@app.get("/api/v1/hits", response_model=List[Dict[str, Any]], tags=["Telemetry Logs"])
+@router.get("/api/v1/hits", response_model=List[Dict[str, Any]], tags=["Telemetry Logs"])
 async def list_trigger_hits(token_id: Optional[str] = None):
     """Retrieve recorded trigger hits telemetry."""
     return db.list_hits(token_id=token_id)
+
+
+# Include router for both root and /trigger-test path prefixes
+app.include_router(router)
+app.include_router(router, prefix="/trigger-test")
+

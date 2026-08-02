@@ -92,3 +92,19 @@ def test_builder_inject_existing_pdf(tmp_path):
     root_dict = reader.trailer["/Root"]
     open_action = root_dict["/OpenAction"]
     assert "http://canary.example.com/t/injected-builder-tok" in str(open_action["/URI"])
+
+
+def test_builder_prefixed_listener_url(tmp_path):
+    """Verify trigger URL generation when listener_url contains path prefix."""
+    output_pdf = str(tmp_path / "prefixed_builder_test.pdf")
+    builder = PDFCanaryBuilder(listener_url="http://127.0.0.1:8000/trigger-test/")
+
+    result = builder.build_canary_pdf(output_path=output_pdf, token_id="prefix-tok-99")
+
+    assert result["trigger_url"] == "http://127.0.0.1:8000/trigger-test/t/prefix-tok-99"
+
+    reader = PdfReader(output_pdf)
+    root_dict = reader.trailer["/Root"]
+    open_action = root_dict["/OpenAction"]
+    assert "http://127.0.0.1:8000/trigger-test/t/prefix-tok-99" in str(open_action["/URI"])
+

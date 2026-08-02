@@ -86,3 +86,30 @@ def test_list_tokens_and_hits():
     hits = client.get("/api/v1/hits").json()
     assert len(hits) >= 1
     assert any(h["token_id"] == "tok-1" for h in hits)
+
+
+def test_trigger_test_prefixed_endpoints():
+    """Verify endpoints work with /trigger-test route prefix."""
+    payload = {
+        "token_id": "prefixed-token-777",
+        "label": "Prefixed Route Test",
+        "file_type": "pdf"
+    }
+    response = client.post("/trigger-test/api/v1/tokens", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["token_id"] == "prefixed-token-777"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Prefixed-Agent)",
+        "X-Forwarded-For": "203.0.113.195"
+    }
+    hit_resp = client.get("/trigger-test/t/prefixed-token-777", headers=headers)
+    assert hit_resp.status_code == 200
+    assert hit_resp.headers["content-type"] == "image/gif"
+
+    hits = client.get("/trigger-test/api/v1/hits?token_id=prefixed-token-777").json()
+    assert len(hits) == 1
+    assert hits[0]["token_id"] == "prefixed-token-777"
+    assert hits[0]["src_ip"] == "203.0.113.195"
+
