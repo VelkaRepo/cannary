@@ -1,0 +1,24 @@
+# CanaryFile Engine Configuration Template
+# Rename this file to config.yaml or set environment variables with CANARY_ prefix.
+
+app_name: "CanaryFile Engine Listener"
+app_version: "0.1.0"
+debug: false
+
+# Server Binding Options
+host: "0.0.0.0"
+port: 8000
+
+# Persistent Telemetry Database Path (SQLite)
+db_path: "canary_tokens.db"
+
+# Webhook Alerting Configuration
+# Supported platforms: generic, slack, discord, teams
+webhook_enabled: false
+webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+webhook_platform: "discord"
+
+# Response Behavior
+# true: Return transparent 1x1 GIF (image/gif) for web bug embedding
+# false: Return 204 No Content
+return_gif: true
