@@ -1,15 +1,16 @@
 """
-Unit tests for CanaryFile Engine document generator & injector.
+Unit tests for CanaryFile Engine document generator & PDF builder.
 """
 
 import pytest
 import os
 from pypdf import PdfReader
 from generator.pdf_injector import PDFCanaryInjector
+from generator.builder import PDFCanaryBuilder
 
 
 def test_create_canary_pdf(tmp_path):
-    """Verify decoy canary PDF generation."""
+    """Verify decoy canary PDF generation via PDFCanaryInjector."""
     output_pdf = str(tmp_path / "canary_test.pdf")
     injector = PDFCanaryInjector(listener_url="http://127.0.0.1:8000")
     
@@ -18,7 +19,6 @@ def test_create_canary_pdf(tmp_path):
     assert os.path.exists(output_pdf)
     assert token_id == "custom-pdf-token"
     
-    # Read generated PDF and verify OpenAction URI
     reader = PdfReader(output_pdf)
     assert len(reader.pages) == 1
     
@@ -30,16 +30,13 @@ def test_create_canary_pdf(tmp_path):
 
 
 def test_inject_existing_pdf(tmp_path):
-    """Verify injecting canary payload into existing PDF."""
+    """Verify injecting canary payload into existing PDF via PDFCanaryInjector."""
     base_pdf = str(tmp_path / "base.pdf")
     output_pdf = str(tmp_path / "injected.pdf")
 
     injector = PDFCanaryInjector(listener_url="http://canary.example.com")
-    
-    # First create a basic base PDF
     injector.create_canary_pdf(output_pdf_path=base_pdf, token_id="base-token")
     
-    # Inject new token into existing PDF
     new_token_id = injector.inject_pdf(
         input_pdf_path=base_pdf,
         output_pdf_path=output_pdf,
@@ -53,3 +50,45 @@ def test_inject_existing_pdf(tmp_path):
     root_dict = reader.trailer["/Root"]
     open_action = root_dict["/OpenAction"]
     assert "http://canary.example.com/t/injected-token-999" in str(open_action["/URI"])
+
+
+def test_builder_create_canary_pdf(tmp_path):
+    """Verify PDFCanaryBuilder build_canary_pdf."""
+    output_pdf = str(tmp_path / "builder_test.pdf")
+    builder = PDFCanaryBuilder(listener_url="http://127.0.0.1:8000")
+
+    result = builder.build_canary_pdf(output_path=output_pdf, token_id="builder-token-123")
+
+    assert os.path.exists(output_pdf)
+    assert result["token_id"] == "builder-token-123"
+    assert result["trigger_url"] == "http://127.0.0.1:8000/t/builder-token-123"
+
+    reader = PdfReader(output_pdf)
+    root_dict = reader.trailer["/Root"]
+    assert "/OpenAction" in root_dict
+    open_action = root_dict["/OpenAction"]
+    assert str(open_action["/S"]) == "/URI"
+    assert "http://127.0.0.1:8000/t/builder-token-123" in str(open_action["/URI"])
+
+
+def test_builder_inject_existing_pdf(tmp_path):
+    """Verify PDFCanaryBuilder inject_existing_pdf."""
+    base_pdf = str(tmp_path / "base_builder.pdf")
+    output_pdf = str(tmp_path / "injected_builder.pdf")
+
+    builder = PDFCanaryBuilder(listener_url="http://canary.example.com")
+    builder.build_canary_pdf(output_path=base_pdf, token_id="base-tok")
+
+    result = builder.inject_existing_pdf(
+        input_pdf_path=base_pdf,
+        output_pdf_path=output_pdf,
+        token_id="injected-builder-tok"
+    )
+
+    assert os.path.exists(output_pdf)
+    assert result["token_id"] == "injected-builder-tok"
+
+    reader = PdfReader(output_pdf)
+    root_dict = reader.trailer["/Root"]
+    open_action = root_dict["/OpenAction"]
+    assert "http://canary.example.com/t/injected-builder-tok" in str(open_action["/URI"])

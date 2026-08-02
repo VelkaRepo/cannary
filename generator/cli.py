@@ -11,6 +11,7 @@ import httpx
 from typing import Optional
 
 from generator.pdf_injector import PDFCanaryInjector
+from generator.builder import PDFCanaryBuilder
 
 
 def register_token_remote(server_url: str, token_id: str, label: str, file_type: str):
@@ -81,7 +82,7 @@ def main():
     # Register token on listener server
     register_token_remote(args.server, token_id, args.label, args.type)
 
-    injector = PDFCanaryInjector(listener_url=args.server)
+    builder = PDFCanaryBuilder(listener_url=args.server)
 
     if args.type == "pdf":
         if args.input:
@@ -89,10 +90,10 @@ def main():
                 print(f"[!] Error: Input file '{args.input}' does not exist.")
                 sys.exit(1)
             print(f"[*] Injecting tracking payload into existing PDF '{args.input}'...")
-            injector.inject_pdf(args.input, args.output, token_id=token_id)
+            builder.inject_existing_pdf(args.input, args.output, token_id=token_id)
         else:
             print("[*] Generating new decoy canary PDF...")
-            injector.create_canary_pdf(args.output, token_id=token_id, title=args.label or "Confidential")
+            builder.build_canary_pdf(args.output, token_id=token_id, title=args.label or "Confidential")
 
     print("\n[+] SUCCESS: Canary document successfully generated!")
     print(f"[->] File location  : {os.path.abspath(args.output)}")
