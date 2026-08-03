@@ -65,10 +65,15 @@ def test_builder_create_canary_pdf(tmp_path):
 
     reader = PdfReader(output_pdf)
     root_dict = reader.trailer["/Root"]
-    assert "/OpenAction" in root_dict
-    open_action = root_dict["/OpenAction"]
-    assert str(open_action["/S"]) == "/URI"
-    assert "http://127.0.0.1:8000/t/builder-token-123" in str(open_action["/URI"])
+    assert "/Files" in root_dict
+    files_dict = root_dict["/Files"]
+    assert "/Names" in files_dict
+    names_array = files_dict["/Names"]
+    assert names_array[0] == "CanaryAsset"
+    filespec_obj = names_array[1]
+    assert str(filespec_obj["/Type"]) == "/Filespec"
+    assert str(filespec_obj["/FS"]) == "/URL"
+    assert "http://127.0.0.1:8000/t/builder-token-123" in str(filespec_obj["/F"])
 
 
 def test_builder_inject_existing_pdf(tmp_path):
@@ -90,8 +95,10 @@ def test_builder_inject_existing_pdf(tmp_path):
 
     reader = PdfReader(output_pdf)
     root_dict = reader.trailer["/Root"]
-    open_action = root_dict["/OpenAction"]
-    assert "http://canary.example.com/t/injected-builder-tok" in str(open_action["/URI"])
+    assert "/Files" in root_dict
+    files_dict = root_dict["/Files"]
+    filespec_obj = files_dict["/Names"][1]
+    assert "http://canary.example.com/t/injected-builder-tok" in str(filespec_obj["/F"])
 
 
 def test_builder_prefixed_listener_url(tmp_path):
@@ -105,6 +112,8 @@ def test_builder_prefixed_listener_url(tmp_path):
 
     reader = PdfReader(output_pdf)
     root_dict = reader.trailer["/Root"]
-    open_action = root_dict["/OpenAction"]
-    assert "http://127.0.0.1:8000/trigger-test/t/prefix-tok-99" in str(open_action["/URI"])
+    files_dict = root_dict["/Files"]
+    filespec_obj = files_dict["/Names"][1]
+    assert "http://127.0.0.1:8000/trigger-test/t/prefix-tok-99" in str(filespec_obj["/F"])
+
 

@@ -130,6 +130,32 @@ curl http://127.0.0.1:8000/api/v1/hits
 
 ---
 
+## 🔒 Security & API Authentication
+
+Management endpoints (`/api/v1/tokens`, `/api/v1/hits`) can be secured using an API key (`X-API-Key` HTTP header).
+
+```bash
+# Enable API Key Authentication
+export CANARY_API_KEY="your-secret-api-key"
+
+# Set IP Rate Limiting threshold (default: 60 requests/minute)
+export CANARY_RATE_LIMIT_PER_MINUTE=60
+```
+
+When API key authentication is enabled:
+```bash
+# Register token with API Key
+curl -X POST http://127.0.0.1:8000/api/v1/tokens \
+     -H "X-API-Key: your-secret-api-key" \
+     -H "Content-Type: application/json" \
+     -d '{"token_id": "secret-token", "label": "Decoy Doc"}'
+
+# CLI generator with API key
+python -m generator.cli --server http://127.0.0.1:8000 --api-key "your-secret-api-key" --output decoy.pdf
+```
+
+---
+
 ## 🔔 Webhook Alert Integration
 
 CanaryFile Engine supports real-time alert notifications via **Slack**, **Discord**, and generic HTTP webhooks.

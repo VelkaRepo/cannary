@@ -14,7 +14,7 @@ from generator.pdf_injector import PDFCanaryInjector
 from generator.builder import PDFCanaryBuilder
 
 
-def register_token_remote(server_url: str, token_id: str, label: str, file_type: str):
+def register_token_remote(server_url: str, token_id: str, label: str, file_type: str, api_key: Optional[str] = None):
     """Attempt to register token with the listener server API."""
     api_endpoint = f"{server_url.rstrip('/')}/api/v1/tokens"
     payload = {
@@ -22,8 +22,12 @@ def register_token_remote(server_url: str, token_id: str, label: str, file_type:
         "label": label,
         "file_type": file_type
     }
+    headers = {}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
     try:
-        response = httpx.post(api_endpoint, json=payload, timeout=3.0)
+        response = httpx.post(api_endpoint, json=payload, headers=headers, timeout=3.0)
         if response.status_code == 201:
             print(f"[+] Token registered successfully on listener server: {token_id}")
         else:
@@ -41,6 +45,10 @@ def main():
         "--server",
         default="http://127.0.0.1:8000",
         help="Base URL of CanaryFile listener server (default: http://127.0.0.1:8000)"
+    )
+    parser.add_argument(
+        "--api-key",
+        help="Management API key (X-API-Key) for server token registration."
     )
     parser.add_argument(
         "--type",
@@ -80,7 +88,7 @@ def main():
     print(f"[*] Output Path          : {args.output}")
 
     # Register token on listener server
-    register_token_remote(args.server, token_id, args.label, args.type)
+    register_token_remote(args.server, token_id, args.label, args.type, api_key=args.api_key)
 
     builder = PDFCanaryBuilder(listener_url=args.server)
 

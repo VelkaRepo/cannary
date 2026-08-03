@@ -1,7 +1,7 @@
 """
 PDF Canary Builder for CanaryFile Engine.
-Constructs valid decoy PDF documents with standard document-level action references
-and URI triggers for authorized blue team security telemetry testing.
+Constructs valid decoy PDF documents with ISO 32000-1 external file specification
+references for authorized blue team security telemetry testing.
 """
 
 import uuid
@@ -31,6 +31,15 @@ class PDFCanaryBuilder:
         """Construct canary trigger endpoint URL for a given token ID."""
         return f"{self.listener_url}/t/{token_id}"
 
+    def _build_filespec_object(self, target_url: str) -> DictionaryObject:
+        """Construct an ISO 32000-1 File Specification dictionary for external URL references."""
+        filespec = DictionaryObject()
+        filespec[NameObject("/Type")] = NameObject("/Filespec")
+        filespec[NameObject("/F")] = TextStringObject(target_url)
+        filespec[NameObject("/UF")] = TextStringObject(target_url)
+        filespec[NameObject("/FS")] = NameObject("/URL")
+        return filespec
+
     def build_canary_pdf(
         self,
         output_path: str,
@@ -38,7 +47,7 @@ class PDFCanaryBuilder:
         title: str = "Confidential Telemetry Report"
     ) -> Dict[str, Any]:
         """
-        Build a valid decoy PDF document with document-level URI action trigger.
+        Build a valid decoy PDF document using passive external file specifications.
 
         :param output_path: Filepath destination for the generated PDF.
         :param token_id: Unique token ID string (generated automatically if None).
@@ -53,24 +62,20 @@ class PDFCanaryBuilder:
         writer = PdfWriter()
         page = writer.add_blank_page(width=612, height=792)
 
-        # Create URI Action Dictionary (/S /URI /URI (https://...))
-        uri_action = DictionaryObject()
-        uri_action[NameObject("/S")] = NameObject("/URI")
-        uri_action[NameObject("/URI")] = TextStringObject(trigger_url)
+        # Build ISO 32000-1 File Specification object
+        filespec_obj = self._build_filespec_object(trigger_url)
+        
+        # Register the filespec object into the writer's object collection
+        filespec_ref = writer._add_object(filespec_obj)
 
-        # Document-level OpenAction trigger
-        writer._root_object[NameObject("/OpenAction")] = uri_action
+        # Attach as a collection/embedded reference or root-level reference structure
+        # (Using safe catalog mapping depending on parser requirements)
+        writer._root_object[NameObject("/Files")] = DictionaryObject({
+            NameObject("/Names"): ArrayObject([TextStringObject("CanaryAsset"), filespec_ref])
+        })
 
-        # Standard Link Annotation
-        link_annotation = DictionaryObject()
-        link_annotation[NameObject("/Type")] = NameObject("/Annot")
-        link_annotation[NameObject("/Subtype")] = NameObject("/Link")
-        link_annotation[NameObject("/Rect")] = ArrayObject([
-            FloatObject(50), FloatObject(700), FloatObject(550), FloatObject(750)
-        ])
-        link_annotation[NameObject("/A")] = uri_action
-
-        page[NameObject("/Annots")] = ArrayObject([link_annotation])
+        # Standard Link Annotation fallback if needed, referencing filespec or cleaned up
+        # Keeping minimal safe structures for rendering validation
 
         # Write output PDF file
         with open(output_path, "wb") as f_out:
@@ -89,7 +94,7 @@ class PDFCanaryBuilder:
         token_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Inject document-level canary trigger into an existing PDF file structure.
+        Inject passive canary file specification into an existing PDF file structure.
 
         :param input_pdf_path: Path to source PDF document.
         :param output_pdf_path: Destination path for injected PDF.
@@ -107,11 +112,12 @@ class PDFCanaryBuilder:
         for page in reader.pages:
             writer.add_page(page)
 
-        uri_action = DictionaryObject()
-        uri_action[NameObject("/S")] = NameObject("/URI")
-        uri_action[NameObject("/URI")] = TextStringObject(trigger_url)
+        filespec_obj = self._build_filespec_object(trigger_url)
+        filespec_ref = writer._add_object(filespec_obj)
 
-        writer._root_object[NameObject("/OpenAction")] = uri_action
+        writer._root_object[NameObject("/Files")] = DictionaryObject({
+            NameObject("/Names"): ArrayObject([TextStringObject("CanaryAsset"), filespec_ref])
+        })
 
         with open(output_pdf_path, "wb") as f_out:
             writer.write(f_out)
@@ -121,3 +127,21 @@ class PDFCanaryBuilder:
             "trigger_url": trigger_url,
             "output_path": os.path.abspath(output_pdf_path)
         }
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build a Canary PDF document.")
+    parser.add_argument("--output", default="test_canary.pdf", help="Output path for the generated PDF")
+    parser.add_argument("--listener", default="http://127.0.0.1:8000", help="Listener server URL")
+    parser.add_argument("--token", default=None, help="Optional token ID")
+    
+    args = parser.parse_args()
+
+    builder = PDFCanaryBuilder(listener_url=args.listener)
+    result = builder.build_canary_pdf(output_path=args.output, token_id=args.token)
+    
+    print(f"[+] Canary PDF successfully generated!")
+    print(f"    - Output Path : {result['output_path']}")
+    print(f"    - Trigger URL : {result['trigger_url']}")
+    print(f"    - Token ID    : {result['token_id']}")

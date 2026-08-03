@@ -3,13 +3,15 @@ CanaryFile Engine - Listener Server Core
 FastAPI application for receiving, logging, and dispatching alerts for canary token triggers.
 """
 
-from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Response, status, APIRouter
+from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Response, status, APIRouter, Depends, Header
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import base64
+import time
+from collections import defaultdict
 
 from server.config import settings
 from server.database import DatabaseHandler
@@ -83,6 +85,50 @@ def get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "127.0.0.1"
 
 
+# API Key Authentication Dependency
+async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+    """Verify management API key if CANARY_API_KEY is set."""
+    if settings.api_key:
+        if not x_api_key or x_api_key != settings.api_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing API key"
+            )
+
+
+# In-memory sliding-window Rate Limiter per client IP
+class SimpleRateLimiter:
+    def __init__(self):
+        self.requests = defaultdict(list)
+
+    def check_rate_limit(self, client_ip: str):
+        if settings.rate_limit_per_minute <= 0:
+            return
+
+        now = time.time()
+        window_start = now - 60.0
+        
+        # Filter timestamps older than 60 seconds
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if t > window_start]
+
+        if len(self.requests[client_ip]) >= settings.rate_limit_per_minute:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Too many trigger hits from this IP."
+            )
+
+        self.requests[client_ip].append(now)
+
+
+rate_limiter = SimpleRateLimiter()
+
+
+def rate_limit_dependency(request: Request):
+    """FastAPI dependency for trigger rate limiting."""
+    client_ip = get_client_ip(request)
+    rate_limiter.check_rate_limit(client_ip)
+
+
 # Define API Router for trigger listener & management endpoints
 router = APIRouter()
 
@@ -93,8 +139,8 @@ async def healthcheck():
     return {"status": "ok", "app": settings.app_name, "version": settings.app_version}
 
 
-@router.get("/t/{token_id}", tags=["Trigger Listener"])
-@router.post("/t/{token_id}", tags=["Trigger Listener"])
+@router.get("/t/{token_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Trigger Listener"])
+@router.post("/t/{token_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Trigger Listener"])
 async def canary_trigger_endpoint(
     token_id: str,
     request: Request,
@@ -137,7 +183,7 @@ async def canary_trigger_endpoint(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/api/v1/tokens", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, tags=["Token Management"])
+@router.post("/api/v1/tokens", response_model=TokenResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_api_key)], tags=["Token Management"])
 async def register_canary_token(payload: TokenCreateRequest):
     """Register a new canary token."""
     result = db.register_token(
@@ -148,13 +194,13 @@ async def register_canary_token(payload: TokenCreateRequest):
     return result
 
 
-@router.get("/api/v1/tokens", response_model=List[Dict[str, Any]], tags=["Token Management"])
+@router.get("/api/v1/tokens", response_model=List[Dict[str, Any]], dependencies=[Depends(verify_api_key)], tags=["Token Management"])
 async def list_canary_tokens():
     """List all registered canary tokens."""
     return db.list_tokens()
 
 
-@router.get("/api/v1/hits", response_model=List[Dict[str, Any]], tags=["Telemetry Logs"])
+@router.get("/api/v1/hits", response_model=List[Dict[str, Any]], dependencies=[Depends(verify_api_key)], tags=["Telemetry Logs"])
 async def list_trigger_hits(token_id: Optional[str] = None):
     """Retrieve recorded trigger hits telemetry."""
     return db.list_hits(token_id=token_id)

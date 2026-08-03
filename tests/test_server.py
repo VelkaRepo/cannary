@@ -7,7 +7,8 @@ import os
 import sqlite3
 from fastapi.testclient import TestClient
 
-from server.main import app, db
+from server.main import app, db, rate_limiter
+from server.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +17,7 @@ def setup_test_db(tmp_path):
     test_db_path = str(tmp_path / "test_canary.db")
     db.db_path = test_db_path
     db._init_db()
+    rate_limiter.requests.clear()
     yield
     if os.path.exists(test_db_path):
         try:
@@ -113,3 +115,39 @@ def test_trigger_test_prefixed_endpoints():
     assert hits[0]["token_id"] == "prefixed-token-777"
     assert hits[0]["src_ip"] == "203.0.113.195"
 
+
+def test_api_key_authentication():
+    """Verify management endpoints return 401 when API key is required but missing/invalid."""
+    settings.api_key = "super-secret-key"
+    try:
+        # Request without header -> 401
+        res_no_auth = client.get("/api/v1/tokens")
+        assert res_no_auth.status_code == 401
+
+        # Request with invalid header -> 401
+        res_invalid_auth = client.get("/api/v1/tokens", headers={"X-API-Key": "wrong-key"})
+        assert res_invalid_auth.status_code == 401
+
+        # Request with valid header -> 200
+        res_valid_auth = client.get("/api/v1/tokens", headers={"X-API-Key": "super-secret-key"})
+        assert res_valid_auth.status_code == 200
+    finally:
+        settings.api_key = None
+
+
+def test_rate_limiting():
+    """Verify trigger endpoint returns 429 when rate limit per IP is exceeded."""
+    settings.rate_limit_per_minute = 3
+    headers = {"X-Forwarded-For": "198.51.100.99"}
+    try:
+        for i in range(3):
+            res = client.get("/t/rate-tok", headers=headers)
+            assert res.status_code == 200
+
+        # 4th request should exceed rate limit
+        res_blocked = client.get("/t/rate-tok", headers=headers)
+        assert res_blocked.status_code == 429
+        assert "Rate limit exceeded" in res_blocked.json()["detail"]
+    finally:
+        settings.rate_limit_per_minute = 60
+        rate_limiter.requests.clear()

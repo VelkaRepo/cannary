@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Return 1x1 transparent GIF (default) or 204 No Content
     return_gif: bool = True
 
+    # Security & Rate Limiting
+    api_key: Optional[str] = None
+    rate_limit_per_minute: int = 60
+
     model_config = SettingsConfigDict(
         env_prefix="CANARY_",
         env_file=".env",
