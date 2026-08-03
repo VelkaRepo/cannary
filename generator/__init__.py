@@ -5,6 +5,7 @@ Injects canary tracking web bugs and URI trigger payloads into document file str
 
 from generator.pdf_injector import PDFCanaryInjector
 from generator.builder import PDFCanaryBuilder
+from generator.office_injector import DOCXCanaryBuilder
 
 __version__ = "0.1.0"
-__all__ = ["PDFCanaryInjector", "PDFCanaryBuilder"]
+__all__ = ["PDFCanaryInjector", "PDFCanaryBuilder", "DOCXCanaryBuilder"]

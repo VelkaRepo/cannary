@@ -4,18 +4,20 @@ FastAPI application for receiving, logging, and dispatching alerts for canary to
 """
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException, Response, status, APIRouter, Depends, Header
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import base64
 import time
+import os
 from collections import defaultdict
 
 from server.config import settings
 from server.database import DatabaseHandler
 from server.notifier import WebhookNotifier
+from server.enrichment import geoip_service
 
 # Configure logging
 logging.basicConfig(
@@ -139,6 +141,16 @@ async def healthcheck():
     return {"status": "ok", "app": settings.app_name, "version": settings.app_version}
 
 
+@router.get("/dashboard", response_class=HTMLResponse, tags=["Dashboard"])
+async def serve_dashboard():
+    """Serve Web Management Dashboard UI."""
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h1>Dashboard Template Not Found</h1>", status_code=404)
+
+
 @router.get("/t/{token_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Trigger Listener"])
 @router.post("/t/{token_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Trigger Listener"])
 async def canary_trigger_endpoint(
@@ -148,14 +160,17 @@ async def canary_trigger_endpoint(
 ):
     """
     Primary Canary Token trigger endpoint.
-    Extracts IP address, User-Agent, and HTTP headers, logs the hit to SQLite,
-    dispatches an async alert notification, and returns a 1x1 transparent GIF.
+    Extracts IP address, User-Agent, and HTTP headers, enriches with GeoIP metadata,
+    logs the hit to SQLite, dispatches an async alert notification, and returns a 1x1 transparent GIF.
     """
     src_ip = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "Unknown User-Agent")
     headers_dict = dict(request.headers)
     method = request.method
     query_params = str(request.query_params)
+
+    # Perform async GeoIP lookup
+    geo_info = await geoip_service.lookup_ip(src_ip)
 
     # Log trigger event to database
     hit_data = db.log_hit(
@@ -164,10 +179,14 @@ async def canary_trigger_endpoint(
         user_agent=user_agent,
         headers=headers_dict,
         method=method,
-        query_params=query_params
+        query_params=query_params,
+        country=geo_info.get("country", "Unknown"),
+        city=geo_info.get("city", "Unknown"),
+        isp=geo_info.get("isp", "Unknown"),
+        asn=geo_info.get("asn", "Unknown")
     )
     
-    logger.warning(f"🚨 CANARY TRIGGERED! Token ID: {token_id} | IP: {src_ip} | UA: {user_agent}")
+    logger.warning(f"🚨 CANARY TRIGGERED! Token ID: {token_id} | IP: {src_ip} | Geo: {geo_info.get('city')}, {geo_info.get('country')}")
 
     # Fetch token metadata if available
     token_meta = db.get_token(token_id)
@@ -204,6 +223,12 @@ async def list_canary_tokens():
 async def list_trigger_hits(token_id: Optional[str] = None):
     """Retrieve recorded trigger hits telemetry."""
     return db.list_hits(token_id=token_id)
+
+
+@router.get("/api/v1/stats", response_model=Dict[str, Any], tags=["Analytics"])
+async def get_dashboard_stats():
+    """Get aggregate telemetry stats for Web Dashboard."""
+    return db.get_analytics_stats()
 
 
 # Include router for both root and /trigger-test path prefixes

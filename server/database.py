@@ -1,6 +1,6 @@
 """
 Database handler for CanaryFile Engine using SQLite.
-Stores token registries and trigger hit telemetry logs.
+Stores token registries, trigger hit telemetry logs, and GeoIP enrichment details.
 """
 
 import sqlite3
@@ -24,7 +24,7 @@ class DatabaseHandler:
         return conn
 
     def _init_db(self) -> None:
-        """Initialize SQLite database tables if they do not exist."""
+        """Initialize SQLite database tables and apply automatic migrations."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
@@ -50,9 +50,21 @@ class DatabaseHandler:
                     headers_json TEXT,
                     request_method TEXT,
                     query_params TEXT,
+                    country TEXT DEFAULT 'Unknown',
+                    city TEXT DEFAULT 'Unknown',
+                    isp TEXT DEFAULT 'Unknown',
+                    asn TEXT DEFAULT 'Unknown',
                     FOREIGN KEY (token_id) REFERENCES tokens (token_id)
                 )
             """)
+
+            # Migration check: Add GeoIP columns if upgrading from earlier version
+            cursor.execute("PRAGMA table_info(hits)")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+            for col in ("country", "city", "isp", "asn"):
+                if col not in existing_columns:
+                    cursor.execute(f"ALTER TABLE hits ADD COLUMN {col} TEXT DEFAULT 'Unknown'")
+
             conn.commit()
 
     def register_token(self, token_id: str, label: str = "", file_type: str = "pdf") -> Dict[str, Any]:
@@ -93,9 +105,13 @@ class DatabaseHandler:
         user_agent: str,
         headers: Dict[str, str],
         method: str = "GET",
-        query_params: str = ""
+        query_params: str = "",
+        country: str = "Unknown",
+        city: str = "Unknown",
+        isp: str = "Unknown",
+        asn: str = "Unknown"
     ) -> Dict[str, Any]:
-        """Record a trigger event hit in the database."""
+        """Record a trigger event hit with GeoIP enrichment details."""
         timestamp = datetime.now(timezone.utc).isoformat()
         headers_json = json.dumps(headers)
         
@@ -103,10 +119,10 @@ class DatabaseHandler:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO hits (token_id, timestamp, src_ip, user_agent, headers_json, request_method, query_params)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO hits (token_id, timestamp, src_ip, user_agent, headers_json, request_method, query_params, country, city, isp, asn)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (token_id, timestamp, src_ip, user_agent, headers_json, method, query_params)
+                (token_id, timestamp, src_ip, user_agent, headers_json, method, query_params, country, city, isp, asn)
             )
             hit_id = cursor.lastrowid
             conn.commit()
@@ -118,8 +134,32 @@ class DatabaseHandler:
             "src_ip": src_ip,
             "user_agent": user_agent,
             "request_method": method,
-            "query_params": query_params
+            "query_params": query_params,
+            "country": country,
+            "city": city,
+            "isp": isp,
+            "asn": asn
         }
+
+    def update_hit_enrichment(self, hit_id: int, geo_data: Dict[str, Any]) -> None:
+        """Update GeoIP enrichment fields for an existing hit."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE hits
+                SET country = ?, city = ?, isp = ?, asn = ?
+                WHERE id = ?
+                """,
+                (
+                    geo_data.get("country", "Unknown"),
+                    geo_data.get("city", "Unknown"),
+                    geo_data.get("isp", "Unknown"),
+                    geo_data.get("asn", "Unknown"),
+                    hit_id
+                )
+            )
+            conn.commit()
 
     def list_tokens(self) -> List[Dict[str, Any]]:
         """List all registered canary tokens."""
@@ -144,3 +184,26 @@ class DatabaseHandler:
                     hit["headers"] = json.loads(hit["headers_json"])
                 hits.append(hit)
             return hits
+
+    def get_analytics_stats(self) -> Dict[str, Any]:
+        """Get aggregate telemetry stats for Web Dashboard."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as total_tokens FROM tokens")
+            total_tokens = cursor.fetchone()["total_tokens"]
+
+            cursor.execute("SELECT COUNT(*) as total_hits FROM hits")
+            total_hits = cursor.fetchone()["total_hits"]
+
+            cursor.execute("SELECT COUNT(DISTINCT src_ip) as unique_ips FROM hits")
+            unique_ips = cursor.fetchone()["unique_ips"]
+
+            cursor.execute("SELECT country, COUNT(*) as count FROM hits WHERE country != 'Unknown' GROUP BY country ORDER BY count DESC LIMIT 5")
+            top_countries = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                "total_tokens": total_tokens,
+                "total_hits": total_hits,
+                "unique_ips": unique_ips,
+                "top_countries": top_countries
+            }

@@ -100,32 +100,48 @@ The listener server will be accessible at `http://127.0.0.1:8000`. You can view 
 
 ### 3. Generate a Canary Document
 
-Use the CLI generator to create a decoy PDF embedded with a canary tracking token:
+Use the CLI generator to create a decoy PDF or MS Word (`.docx`) file embedded with a canary tracking token:
 
 ```bash
 # Generate a new decoy PDF document
 python -m generator.cli --server http://127.0.0.1:8000 --output Confidential_Q3_Report.pdf --label "Q3 Financial Decoy"
 
-# Or inject payload into an existing PDF file
-python -m generator.cli --server http://127.0.0.1:8000 --input sample.pdf --output sample_canary.pdf --label "Internal Operations Manual"
+# Generate a new decoy MS Word (.docx) document
+python -m generator.cli --server http://127.0.0.1:8000 --type docx --output Secret_Strategy.docx --label "Strategy Decoy"
+
+# Or inject payload into an existing document
+python -m generator.cli --server http://127.0.0.1:8000 --type docx --input sample.docx --output sample_canary.docx --label "Operations Manual"
 ```
 
 ---
 
-### 4. Test Trigger Alert
+### 4. Web Management Dashboard & Telemetry
 
-Opening the generated PDF document in a compatible viewer (or accessing the URL directly via web browser/curl) will trigger an immediate alert:
+Access the interactive, dark-mode Web Management Dashboard at `http://127.0.0.1:8000/dashboard` to view:
+- Real-time trigger hits & GeoIP origin locations (Country, City, ISP/ASN).
+- Total registered tokens & hit statistics.
+- Interactive token registration modal.
+
+---
+
+### 5. Test Trigger Alert
+
+Opening the generated PDF or MS Word document (or accessing the trigger URL directly) logs an enriched telemetry event:
 
 ```bash
 curl -i http://127.0.0.1:8000/t/<TOKEN_ID>
 ```
 
-#### Viewing Telemetry Logs & Recorded Hits
+#### Viewing Telemetry Logs & Analytics
 
-Retrieve recorded trigger events via API:
+Retrieve recorded trigger events and aggregate analytics via API:
 
 ```bash
+# Get enriched trigger hits (Country, City, ISP, ASN)
 curl http://127.0.0.1:8000/api/v1/hits
+
+# Get dashboard analytics summary
+curl http://127.0.0.1:8000/api/v1/stats
 ```
 
 ---

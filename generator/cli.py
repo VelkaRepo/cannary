@@ -12,6 +12,7 @@ from typing import Optional
 
 from generator.pdf_injector import PDFCanaryInjector
 from generator.builder import PDFCanaryBuilder
+from generator.office_injector import DOCXCanaryBuilder
 
 
 def register_token_remote(server_url: str, token_id: str, label: str, file_type: str, api_key: Optional[str] = None):
@@ -52,7 +53,7 @@ def main():
     )
     parser.add_argument(
         "--type",
-        choices=["pdf"],
+        choices=["pdf", "docx"],
         default="pdf",
         help="Target document type to generate/inject (default: pdf)"
     )
@@ -72,7 +73,7 @@ def main():
     parser.add_argument(
         "--label",
         default="",
-        help="Descriptive label or memo for tracking (e.g., 'Financial_Q3_Draft.pdf')"
+        help="Descriptive label or memo for tracking (e.g., 'Financial_Q3_Draft.docx')"
     )
 
     args = parser.parse_args()
@@ -90,9 +91,8 @@ def main():
     # Register token on listener server
     register_token_remote(args.server, token_id, args.label, args.type, api_key=args.api_key)
 
-    builder = PDFCanaryBuilder(listener_url=args.server)
-
     if args.type == "pdf":
+        builder = PDFCanaryBuilder(listener_url=args.server)
         if args.input:
             if not os.path.exists(args.input):
                 print(f"[!] Error: Input file '{args.input}' does not exist.")
@@ -102,6 +102,18 @@ def main():
         else:
             print("[*] Generating new decoy canary PDF...")
             builder.build_canary_pdf(args.output, token_id=token_id, title=args.label or "Confidential")
+
+    elif args.type == "docx":
+        docx_builder = DOCXCanaryBuilder(listener_url=args.server)
+        if args.input:
+            if not os.path.exists(args.input):
+                print(f"[!] Error: Input file '{args.input}' does not exist.")
+                sys.exit(1)
+            print(f"[*] Injecting attachedTemplate web bug into existing Word docx '{args.input}'...")
+            docx_builder.inject_existing_docx(args.input, args.output, token_id=token_id)
+        else:
+            print("[*] Generating new decoy canary Word docx...")
+            docx_builder.build_canary_docx(args.output, token_id=token_id, title=args.label or "Confidential Strategy Document")
 
     print("\n[+] SUCCESS: Canary document successfully generated!")
     print(f"[->] File location  : {os.path.abspath(args.output)}")
